@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Revit Phasing — Interactive Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #e4e9ef;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+      gap: 14px;
+    }
+
+    h1 { font-size: 18px; font-weight: 700; color: #1a2a3a; letter-spacing: 0.2px; }
+
+    .panel {
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 14px 20px;
+    }
+
+    .controls { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
+
+    .ctrl { display: flex; flex-direction: column; gap: 5px; }
+    .ctrl label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: #7a8a9a;
+    }
+    .ctrl select {
+      font-size: 14px; font-family: inherit; padding: 7px 10px;
+      border: 1.5px solid #d0d8e0; border-radius: 6px;
+      background: white; color: #1a2a3a; cursor: pointer; min-width: 215px;
+    }
+    .ctrl select:focus { outline: none; border-color: #3b7fd4; }
+
+    .badge {
+      padding: 8px 14px; background: #f0f5fb;
+      border-left: 3px solid #3b7fd4; border-radius: 0 6px 6px 0;
+      font-size: 12px; line-height: 1.8; color: #1a2a3a;
+    }
+    .badge .lbl {
+      font-weight: 700; color: #3b7fd4; font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+
+    .btn-demo {
+      padding: 9px 16px; background: #cc3300; color: white;
+      border: none; border-radius: 6px; font-size: 13px;
+      font-family: inherit; font-weight: 700; cursor: pointer;
+      letter-spacing: 0.3px; align-self: flex-end;
+    }
+    .btn-demo:hover { background: #aa2800; }
+
+    svg#fp { display: block; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.13); }
+
+    .legend {
+      display: flex; gap: 18px; flex-wrap: wrap;
+      font-size: 12px; align-items: center; color: #444;
+    }
+    .legend strong {
+      font-size: 10px; color: #7a8a9a;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .li { display: flex; align-items: center; gap: 7px; }
+    .swatch { width: 22px; height: 13px; border-radius: 3px; flex-shrink: 0; }
+
+    #info { font-size: 11px; color: #7a8a9a; font-style: italic; text-align: center; min-height: 16px; }
+  </style>
+</head>
+<body>
+
+<h1>Revit Phasing — Interactive Floor Plan</h1>
+
+<!-- ── Controls ── -->
+<div class="panel controls">
+  <div class="ctrl">
+    <label>Phase</label>
+    <select id="sel-phase">
+      <option value="0">Existing</option>
+      <option value="1">New Construction</option>
+    </select>
+  </div>
+  <div class="ctrl">
+    <label>Phase Filter</label>
+    <select id="sel-filter">
+      <option value="all">Show All</option>
+      <option value="prev-demo">Show Previous + Demolish</option>
+      <option value="prev-new">Show Previous + New</option>
+      <option value="complete" selected>Show Complete</option>
+      <option value="new">Show New</option>
+    </select>
+  </div>
+  <div class="badge">
+    <div class="lbl">View Phasing</div>
+    <div id="badge-phase">Phase = Existing</div>
+    <div id="badge-filter">Phase Filter = Show All</div>
+  </div>
+  <button class="btn-demo" onclick="highlightDemolished()">Highlight Demolished</button>
+</div>
+
+<!-- ── Floor plan SVG ── -->
+<svg id="fp" viewBox="0 0 706 962" width="530" height="722" style="background:#f7f8f9;">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0,8 3,0 6" fill="#cc3300"/>
+    </marker>
+  </defs>
+  <g id="g-rooms"></g>
+  <g id="g-walls"></g>
+  <g id="g-labels"></g>
+  <g id="g-annot"></g>
+</svg>
+
+<!-- ── Legend ── -->
+<div class="panel legend">
+  <strong>Legend</strong>
+  <div class="li">
+    <svg width="36" height="6"><line x1="0" y1="3" x2="36" y2="3" stroke="#1a1a1a" stroke-width="4.5" stroke-linecap="round"/></svg>
+    Existing wall
+  </div>
+  <div class="li">
+    <svg width="36" height="6"><line x1="0" y1="3" x2="36" y2="3" stroke="#cc3300" stroke-width="3" stroke-dasharray="7,5" stroke-linecap="round"/></svg>
+    Demolished wall
+  </div>
+  <div class="li">
+    <svg width="36" height="6"><line x1="0" y1="3" x2="36" y2="3" stroke="#0055aa" stroke-width="4.5" stroke-linecap="round"/></svg>
+    New wall
+  </div>
+  <div class="li"><div class="swatch" style="background:#cde8f6;border:1px solid #a0c8e0;"></div> Existing room</div>
+  <div class="li"><div class="swatch" style="background:#ccf0e0;border:1px solid #88d4aa;"></div> New room</div>
+  <div class="li"><div class="swatch" style="background:#f0d0e8;border:1px solid #ccc;"></div> Demolished room</div>
+</div>
+
+<div id="info"></div>
+
+<script>
+// ────────────────────────────────────────────────────────────
+// DATA MODEL
+// phaseCreated (c) / phaseDemolished (d): indices into PHASES
+// d = null means never demolished
+// ────────────────────────────────────────────────────────────
+
+const PHASES = ["Existing", "New Construction"];
+
+// Phase filter rules: which element statuses are rendered
+const FILTERS = {
+  "all":       { label:"Show All",                 existing:1, demolished:1, new_:1, future:0 },
+  "prev-demo": { label:"Show Previous + Demolish", existing:1, demolished:1, new_:0, future:0 },
+  "prev-new":  { label:"Show Previous + New",      existing:1, demolished:0, new_:1, future:0 },
+  "complete":  { label:"Show Complete",            existing:1, demolished:0, new_:1, future:0 },
+  "new":       { label:"Show New",                 existing:0, demolished:0, new_:1, future:0 },
+};
+
+// Walls — array of {x,y} polyline points
+// Coordinate reference (portrait 706×962):
+//   Bump-out:       x 238–472, y  32–148
+//   Main body:      x  58–648, y 148–930
+//   Left column:    x  58–265  (Storage top, Reception bottom)
+//   Center/Lobby:   x 265–472
+//   Right/Office11: x 472–648  (aligns with bump-out right)
+//   Upper/lower:    y 575
+//   Storage/Recept: y 345
+//   Corridor strip: y 575–648
+//   MR1+MR2 row:    y 575–782
+//   MR3 bottom:     y 782–930
+const WALLS = [
+  // Outer perimeter (permanent)
+  {id:"ow1",  c:0, d:null, pts:[{x:58, y:148},{x:238,y:148}]},   // main top-left → bump L
+  {id:"ow2",  c:0, d:null, pts:[{x:238,y:148},{x:238,y:32}]},    // bump-out left side
+  {id:"ow3",  c:0, d:null, pts:[{x:238,y:32}, {x:472,y:32}]},    // bump-out top
+  {id:"ow4",  c:0, d:null, pts:[{x:472,y:32}, {x:472,y:148}]},   // bump-out right side
+  {id:"ow5",  c:0, d:null, pts:[{x:472,y:148},{x:648,y:148}]},   // main top-right
+  {id:"ow6",  c:0, d:null, pts:[{x:648,y:148},{x:648,y:930}]},   // right side
+  {id:"ow7",  c:0, d:null, pts:[{x:58, y:930},{x:648,y:930}]},   // bottom
+  {id:"ow8",  c:0, d:null, pts:[{x:58, y:148},{x:58, y:930}]},   // left side
+  // Interior permanent
+  {id:"iw_bb",c:0, d:null, pts:[{x:238,y:148},{x:472,y:148}]},   // bump-out base (Office 8 / Lobby divide)
+  {id:"iw3",  c:0, d:null, pts:[{x:472,y:148},{x:472,y:575}]},   // Office 11 left (= bump right)
+  {id:"iw4",  c:0, d:null, pts:[{x:58, y:575},{x:316,y:575}]},   // upper/lower divide (left)
+  {id:"iw4b", c:0, d:null, pts:[{x:316,y:575},{x:440,y:575}]},   // lobby/corridor divide (center)
+  {id:"iw5",  c:0, d:null, pts:[{x:440,y:575},{x:648,y:575}]},   // upper/lower divide (right)
+  {id:"iw6",  c:0, d:null, pts:[{x:316,y:575},{x:316,y:782}]},   // corridor left wall (= MR1 right)
+  {id:"iw7",  c:0, d:null, pts:[{x:440,y:575},{x:440,y:782}]},   // corridor right wall (= MR2 left)
+  {id:"iw11", c:0, d:null, pts:[{x:58, y:782},{x:648,y:782}]},   // MR3 top wall
+  // New in New Construction
+  {id:"nw1",  c:1, d:null, pts:[{x:58, y:390},{x:472,y:390}]},   // Conference Room / Reception divide
+  // Demolished in New Construction
+  {id:"dw1",  c:0, d:1,    pts:[{x:265,y:148},{x:265,y:575}]},   // Storage|Lobby vertical
+  {id:"dw2",  c:0, d:1,    pts:[{x:58, y:345},{x:265,y:345}]},   // Storage|Reception horizontal
+];
+
+// Rooms — polygon + label position
+const ROOMS = [
+  // Permanent rooms
+  {id:"r8",  name:"OFFICE",         num:"8",  c:0, d:null,
+   poly:[{x:238,y:32},{x:472,y:32},{x:472,y:148},{x:238,y:148}], lx:355, ly:90},
+  {id:"r10", name:"LOBBY",          num:"10", c:0, d:1,
+   poly:[{x:265,y:148},{x:472,y:148},{x:472,y:575},{x:265,y:575}], lx:368, ly:362},
+  {id:"r11", name:"OFFICE",         num:"11", c:0, d:null,
+   poly:[{x:472,y:148},{x:648,y:148},{x:648,y:575},{x:472,y:575}], lx:560, ly:362},
+  {id:"r14", name:"Meeting Room 1", num:"14", c:0, d:null,
+   poly:[{x:58, y:575},{x:316,y:575},{x:316,y:782},{x:58, y:782}], lx:187, ly:676},
+  {id:"r13", name:"Meeting Room 2", num:"13", c:0, d:null,
+   poly:[{x:440,y:575},{x:648,y:575},{x:648,y:782},{x:440,y:782}], lx:544, ly:676},
+  {id:"r16", name:"Corridor",       num:"16", c:0, d:null,
+   poly:[{x:316,y:575},{x:440,y:575},{x:440,y:782},{x:316,y:782}], lx:378, ly:679},
+  {id:"r15", name:"Meeting Room 3", num:"15", c:0, d:null,
+   poly:[{x:58, y:782},{x:648,y:782},{x:648,y:930},{x:58, y:930}], lx:353, ly:856},
+  // Demolished in New Construction
+  {id:"r9",  name:"STORAGE",        num:"9",  c:0, d:1,
+   poly:[{x:58, y:148},{x:265,y:148},{x:265,y:345},{x:58, y:345}], lx:162, ly:246},
+  {id:"r12", name:"RECEPTION",      num:"12", c:0, d:1,
+   poly:[{x:58, y:345},{x:265,y:345},{x:265,y:575},{x:58, y:575}], lx:162, ly:460},
+  // New in New Construction
+  {id:"r18", name:"Conference Room", num:"18", c:1, d:null,
+   poly:[{x:58, y:148},{x:472,y:148},{x:472,y:390},{x:58, y:390}], lx:265, ly:269},
+  {id:"r17", name:"RECEPTION",       num:"17", c:1, d:null,
+   poly:[{x:58, y:390},{x:472,y:390},{x:472,y:575},{x:58, y:575}], lx:265, ly:483},
+];
+
+// ────────────────────────────────────────────────────────────
+// STATUS LOGIC
+// ────────────────────────────────────────────────────────────
+
+function elemStatus(elem, pi) {
+  const c = elem.c, d = elem.d;
+  if (c > pi)              return "future";
+  if (d !== null && d < pi) return "past";        // demolished before this phase
+  if (d === pi)            return "demolished";
+  if (c === pi && c > 0)   return "new_";         // created in this phase (not base)
+  return "existing";
+}
+
+function isVisible(st, fk) {
+  if (st === "past") return false;
+  const f = FILTERS[fk];
+  return !!(f[st] ?? 0);
+}
+
+// ────────────────────────────────────────────────────────────
+// SVG HELPERS
+// ────────────────────────────────────────────────────────────
+
+const NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  return e;
+}
+
+function pts2str(pts) { return pts.map(p => `${p.x},${p.y}`).join(" "); }
+
+// ────────────────────────────────────────────────────────────
+// STYLE MAPS
+// ────────────────────────────────────────────────────────────
+
+const WALL_STYLE = {
+  existing:   { stroke:"#1a1a1a", w:5,   dash:"",    op:1   },
+  demolished: { stroke:"#cc3300", w:2.5, dash:"8,5", op:1   },
+  new_:       { stroke:"#0055aa", w:5,   dash:"",    op:1   },
+  future:     { stroke:"#888",    w:2,   dash:"5,4", op:0.4 },
+};
+
+const ROOM_STYLE = {
+  existing:   { fill:"#cde8f6",                   sdash:"",    op:1   },
+  demolished: { fill:"#f0d0e8",                    sdash:"",    op:1   },
+  new_:       { fill:"#ccf0e0",                    sdash:"",    op:1   },
+  future:     { fill:"#f0f0d8",                    sdash:"",    op:0.5 },
+};
+
+// ────────────────────────────────────────────────────────────
+// RENDER
+// ────────────────────────────────────────────────────────────
+
+function render() {
+  const pi = +document.getElementById("sel-phase").value;
+  const fk = document.getElementById("sel-filter").value;
+  const f  = FILTERS[fk];
+
+  document.getElementById("badge-phase").textContent  = `Phase = ${PHASES[pi]}`;
+  document.getElementById("badge-filter").textContent = `Phase Filter = ${f.label}`;
+
+  const gR = document.getElementById("g-rooms");
+  const gW = document.getElementById("g-walls");
+  const gL = document.getElementById("g-labels");
+  const gA = document.getElementById("g-annot");
+  [gR, gW, gL, gA].forEach(g => { g.innerHTML = ""; });
+
+  // ── Room fills — two passes so demolished rooms overlay new rooms ──
+  // Pass 1: existing + new_ fills
+  ROOMS.forEach(room => {
+    const st = elemStatus(room, pi);
+    if (!isVisible(st, fk) || st === "demolished") return;
+    const rs = ROOM_STYLE[st] || ROOM_STYLE.existing;
+    gR.appendChild(svgEl("polygon", {
+      points:             pts2str(room.poly),
+      fill:               rs.fill,
+      stroke:             st === "new_" ? "#7bbfba" : "none",
+      "stroke-width":     st === "new_" ? "1.5" : "0",
+      "stroke-dasharray": "",
+      opacity:            rs.op,
+    }));
+  });
+
+  // Pass 2: demolished fills on top — semi-transparent in "Show All" so new rooms show through
+  ROOMS.forEach(room => {
+    const st = elemStatus(room, pi);
+    if (!isVisible(st, fk) || st !== "demolished") return;
+    const rs = ROOM_STYLE["demolished"];
+    gR.appendChild(svgEl("polygon", {
+      points:             pts2str(room.poly),
+      fill:               rs.fill,
+      stroke:             "none",
+      "stroke-width":     "0",
+      "stroke-dasharray": "",
+      opacity:            fk === "all" ? 0.5 : rs.op,
+    }));
+  });
+
+  // ── Room labels ───────────────────────────────────────────
+  ROOMS.forEach(room => {
+    const st = elemStatus(room, pi);
+    if (!isVisible(st, fk)) return;
+
+    const isDemolished = (st === "demolished");
+    const g = document.createElementNS(NS, "g");
+
+    const nameEl = svgEl("text", {
+      x: room.lx, y: room.ly - 10,
+      "text-anchor":      "middle",
+      "font-family":      "Arial",
+      "font-size":        room.name.length > 10 ? "9.5" : "10.5",
+      "font-weight":      "600",
+      "letter-spacing":   "0.4",
+      fill:               isDemolished ? "#cc3300" : "#1a2a3a",
+      "text-decoration":  "none",
+    });
+    nameEl.textContent = room.name;
+    g.appendChild(nameEl);
+
+    if (room.num) {
+      const bw = 22, bh = 15;
+      g.appendChild(svgEl("rect", {
+        x: room.lx - bw/2, y: room.ly + 1,
+        width: bw, height: bh,
+        fill: "white",
+        stroke: isDemolished ? "#cc3300" : "#333",
+        "stroke-width": "1", rx: "2",
+      }));
+      const numEl = svgEl("text", {
+        x: room.lx, y: room.ly + 12,
+        "text-anchor":  "middle",
+        "font-family":  "Arial",
+        "font-size":    "9",
+        "font-weight":  "700",
+        fill:           isDemolished ? "#cc3300" : "#1a2a3a",
+      });
+      numEl.textContent = room.num;
+      g.appendChild(numEl);
+    }
+    gL.appendChild(g);
+  });
+
+  // ── Walls ────────────────────────────────────────────────
+  WALLS.forEach(wall => {
+    const st = elemStatus(wall, pi);
+    if (!isVisible(st, fk)) return;
+    const ws = WALL_STYLE[st] || WALL_STYLE.existing;
+
+    gW.appendChild(svgEl("polyline", {
+      points:              wall.pts.map(p => `${p.x},${p.y}`).join(" "),
+      fill:                "none",
+      stroke:              ws.stroke,
+      "stroke-width":      ws.w,
+      "stroke-dasharray":  ws.dash,
+      "stroke-linecap":    "square",
+      opacity:             ws.op,
+    }));
+  });
+
+
+  // ── Status count bar ─────────────────────────────────────
+  let ex = 0, dm = 0, nw = 0, hid = 0;
+  [...WALLS, ...ROOMS].forEach(e => {
+    const s = elemStatus(e, pi);
+    if (!isVisible(s, fk)) { hid++; return; }
+    if (s === "existing")   ex++;
+    else if (s === "demolished") dm++;
+    else if (s === "new_")  nw++;
+  });
+
+  const parts = [`existing: ${ex}`];
+  if (dm) parts.push(`demolished: ${dm}`);
+  if (nw) parts.push(`new: ${nw}`);
+  if (hid) parts.push(`hidden by filter: ${hid}`);
+  document.getElementById("info").textContent = "Elements visible — " + parts.join(" · ");
+}
+
+// ────────────────────────────────────────────────────────────
+// INIT
+// ────────────────────────────────────────────────────────────
+function highlightDemolished() {
+  document.getElementById("sel-phase").value  = "1";
+  document.getElementById("sel-filter").value = "prev-demo";
+  render();
+}
+
+document.getElementById("sel-phase").addEventListener("change", render);
+document.getElementById("sel-filter").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
