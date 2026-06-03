@@ -331,6 +331,21 @@ function renderPlan(gR, gW, gL, pi, fk, buggy) {
     }));
   });
 
+  // Seal sub-pixel seam between adjacent new room polygons in buggy mode
+  // (nw1 is hidden in this filter, leaving a rendering gap at y=390)
+  if (buggy) {
+    ROOMS.forEach(room => {
+      if (elemStatus(room, pi) !== "new_") return;
+      gR.appendChild(svgEl("polygon", {
+        points:          pts2str(room.poly),
+        fill:            "none",
+        stroke:          ROOM_STYLE["new_"].fill,
+        "stroke-width":  "2",
+        "stroke-linejoin": "miter",
+      }));
+    });
+  }
+
   // ── Room fills pass 2: demolished ───────────────────────
   // Hidden entirely in buggy mode; semi-transparent in "Show All" otherwise
   if (!buggy) {
@@ -357,8 +372,9 @@ function renderPlan(gR, gW, gL, pi, fk, buggy) {
 
     const isDemolished = (!buggy && st === "demolished");
     const isGhosted    = (buggy  && st === "existing");
-    const labelColor   = isDemolished ? "#cc3300" : isGhosted ? "#bbb" : "#1a2a3a";
-    const boxStroke    = isDemolished ? "#cc3300" : isGhosted ? "#ddd" : "#333";
+    if (isGhosted) return;  // no labels on unfilled rooms in buggy mode
+    const labelColor   = isDemolished ? "#cc3300" : "#1a2a3a";
+    const boxStroke    = isDemolished ? "#cc3300" : "#333";
 
     const g = document.createElementNS(NS, "g");
 
