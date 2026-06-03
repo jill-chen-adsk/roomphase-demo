@@ -315,33 +315,40 @@ function renderPlan(gR, gW, gL, pi, fk, buggy) {
   [gR, gW, gL].forEach(g => { g.innerHTML = ""; });
 
   // ── Room fills pass 1: existing + new_ ──────────────────
-  ROOMS.forEach(room => {
-    const st  = elemStatus(room, pi);
-    const vis = buggy ? isVisibleBuggy(st) : isVisible(st, fk);
-    if (!vis || st === "demolished") return;
-    const rs   = ROOM_STYLE[st] || ROOM_STYLE.existing;
-    const fill = (buggy && st === "existing") ? "#f7f8f9" : rs.fill;
-    gR.appendChild(svgEl("polygon", {
-      points:             pts2str(room.poly),
-      fill,
-      opacity:            rs.op,
-      stroke:             (!buggy && st === "new_") ? "#7bbfba" : "none",
-      "stroke-width":     (!buggy && st === "new_") ? "1.5" : "0",
-      "stroke-dasharray": "",
-    }));
-  });
-
-  // Seal sub-pixel seam between adjacent new room polygons in buggy mode
-  // (nw1 is hidden in this filter, leaving a rendering gap at y=390)
+  // Buggy mode: new rooms drawn as one combined bounding rect (no shared polygon edge = no seam);
+  //             existing rooms drawn with white fill matching SVG background.
+  // Normal mode: each room drawn individually with its status colour.
   if (buggy) {
+    const newPts = ROOMS.filter(r => elemStatus(r, pi) === "new_").flatMap(r => r.poly);
+    if (newPts.length) {
+      const xs = newPts.map(p => p.x), ys = newPts.map(p => p.y);
+      gR.appendChild(svgEl("rect", {
+        x:      String(Math.min(...xs)),
+        y:      String(Math.min(...ys)),
+        width:  String(Math.max(...xs) - Math.min(...xs)),
+        height: String(Math.max(...ys) - Math.min(...ys)),
+        fill:   ROOM_STYLE["new_"].fill,
+      }));
+    }
     ROOMS.forEach(room => {
-      if (elemStatus(room, pi) !== "new_") return;
+      if (elemStatus(room, pi) !== "existing") return;
       gR.appendChild(svgEl("polygon", {
-        points:          pts2str(room.poly),
-        fill:            "none",
-        stroke:          ROOM_STYLE["new_"].fill,
-        "stroke-width":  "2",
-        "stroke-linejoin": "miter",
+        points: pts2str(room.poly), fill: "white", opacity: "1",
+        stroke: "none", "stroke-width": "0", "stroke-dasharray": "",
+      }));
+    });
+  } else {
+    ROOMS.forEach(room => {
+      const st = elemStatus(room, pi);
+      if (!isVisible(st, fk) || st === "demolished") return;
+      const rs = ROOM_STYLE[st] || ROOM_STYLE.existing;
+      gR.appendChild(svgEl("polygon", {
+        points:             pts2str(room.poly),
+        fill:               rs.fill,
+        opacity:            rs.op,
+        stroke:             st === "new_" ? "#7bbfba" : "none",
+        "stroke-width":     st === "new_" ? "1.5" : "0",
+        "stroke-dasharray": "",
       }));
     });
   }
