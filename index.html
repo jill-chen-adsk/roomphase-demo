@@ -59,7 +59,25 @@
     }
     .btn-demo:hover { background: #aa2800; }
 
-    svg#fp { display: block; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.13); }
+    .btn-compare {
+      padding: 9px 16px; background: #444; color: white;
+      border: none; border-radius: 6px; font-size: 13px;
+      font-family: inherit; font-weight: 700; cursor: pointer;
+      letter-spacing: 0.3px; align-self: flex-end;
+    }
+    .btn-compare:hover { background: #222; }
+
+    #plans-wrap { display: flex; gap: 24px; align-items: flex-start; justify-content: center; }
+    .plan-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .plan-label {
+      font-size: 13px; font-weight: 700; color: #1a2a3a;
+      background: white; padding: 6px 16px; border-radius: 6px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .plan-label.expected { border-left: 3px solid #0055aa; }
+    .plan-label.current  { border-left: 3px solid #cc3300; }
+
+    .fp-svg { display: block; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.13); }
 
     .legend {
       display: flex; gap: 18px; flex-wrap: wrap;
@@ -101,23 +119,41 @@
   <div class="badge">
     <div class="lbl">View Phasing</div>
     <div id="badge-phase">Phase = Existing</div>
-    <div id="badge-filter">Phase Filter = Show All</div>
+    <div id="badge-filter">Phase Filter = Show Complete</div>
   </div>
   <button class="btn-demo" onclick="highlightDemolished()">Highlight Demolished</button>
+  <button class="btn-compare" id="btn-compare" onclick="toggleComparison()">Show Current Behavior</button>
 </div>
 
-<!-- ── Floor plan SVG ── -->
-<svg id="fp" viewBox="0 0 706 962" width="530" height="722" style="background:#f7f8f9;">
-  <defs>
-    <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-      <polygon points="0 0,8 3,0 6" fill="#cc3300"/>
-    </marker>
-  </defs>
-  <g id="g-rooms"></g>
-  <g id="g-walls"></g>
-  <g id="g-labels"></g>
-  <g id="g-annot"></g>
-</svg>
+<!-- ── Floor plan SVGs ── -->
+<div id="plans-wrap">
+  <div class="plan-panel">
+    <div class="plan-label expected" id="lbl-expected" style="display:none">Expected Behavior</div>
+    <svg id="fp" class="fp-svg" viewBox="0 0 706 962" width="530" height="722" style="background:#f7f8f9;">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#cc3300"/>
+        </marker>
+      </defs>
+      <g id="g-rooms"></g>
+      <g id="g-walls"></g>
+      <g id="g-labels"></g>
+    </svg>
+  </div>
+  <div class="plan-panel" id="panel-buggy" style="display:none">
+    <div class="plan-label current">Current Revit Behavior</div>
+    <svg id="fp-b" class="fp-svg" viewBox="0 0 706 962" width="530" height="722" style="background:#f7f8f9;">
+      <defs>
+        <marker id="arr-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0,8 3,0 6" fill="#cc3300"/>
+        </marker>
+      </defs>
+      <g id="g-rooms-b"></g>
+      <g id="g-walls-b"></g>
+      <g id="g-labels-b"></g>
+    </svg>
+  </div>
+</div>
 
 <!-- ── Legend ── -->
 <div class="panel legend">
@@ -144,13 +180,10 @@
 <script>
 // ────────────────────────────────────────────────────────────
 // DATA MODEL
-// phaseCreated (c) / phaseDemolished (d): indices into PHASES
-// d = null means never demolished
 // ────────────────────────────────────────────────────────────
 
 const PHASES = ["Existing", "New Construction"];
 
-// Phase filter rules: which element statuses are rendered
 const FILTERS = {
   "all":       { label:"Show All",                 existing:1, demolished:1, new_:1, future:0 },
   "prev-demo": { label:"Show Previous + Demolish", existing:1, demolished:1, new_:0, future:0 },
@@ -159,47 +192,34 @@ const FILTERS = {
   "new":       { label:"Show New",                 existing:0, demolished:0, new_:1, future:0 },
 };
 
-// Walls — array of {x,y} polyline points
-// Coordinate reference (portrait 706×962):
-//   Bump-out:       x 238–472, y  32–148
-//   Main body:      x  58–648, y 148–930
-//   Left column:    x  58–265  (Storage top, Reception bottom)
-//   Center/Lobby:   x 265–472
-//   Right/Office11: x 472–648  (aligns with bump-out right)
-//   Upper/lower:    y 575
-//   Storage/Recept: y 345
-//   Corridor strip: y 575–648
-//   MR1+MR2 row:    y 575–782
-//   MR3 bottom:     y 782–930
 const WALLS = [
   // Outer perimeter (permanent)
-  {id:"ow1",  c:0, d:null, pts:[{x:58, y:148},{x:238,y:148}]},   // main top-left → bump L
-  {id:"ow2",  c:0, d:null, pts:[{x:238,y:148},{x:238,y:32}]},    // bump-out left side
-  {id:"ow3",  c:0, d:null, pts:[{x:238,y:32}, {x:472,y:32}]},    // bump-out top
-  {id:"ow4",  c:0, d:null, pts:[{x:472,y:32}, {x:472,y:148}]},   // bump-out right side
-  {id:"ow5",  c:0, d:null, pts:[{x:472,y:148},{x:648,y:148}]},   // main top-right
-  {id:"ow6",  c:0, d:null, pts:[{x:648,y:148},{x:648,y:930}]},   // right side
-  {id:"ow7",  c:0, d:null, pts:[{x:58, y:930},{x:648,y:930}]},   // bottom
-  {id:"ow8",  c:0, d:null, pts:[{x:58, y:148},{x:58, y:930}]},   // left side
+  {id:"ow1",  c:0, d:null, pts:[{x:58, y:148},{x:238,y:148}]},
+  {id:"ow2",  c:0, d:null, pts:[{x:238,y:148},{x:238,y:32}]},
+  {id:"ow3",  c:0, d:null, pts:[{x:238,y:32}, {x:472,y:32}]},
+  {id:"ow4",  c:0, d:null, pts:[{x:472,y:32}, {x:472,y:148}]},
+  {id:"ow5",  c:0, d:null, pts:[{x:472,y:148},{x:648,y:148}]},
+  {id:"ow6",  c:0, d:null, pts:[{x:648,y:148},{x:648,y:930}]},
+  {id:"ow7",  c:0, d:null, pts:[{x:58, y:930},{x:648,y:930}]},
+  {id:"ow8",  c:0, d:null, pts:[{x:58, y:148},{x:58, y:930}]},
   // Interior permanent
-  {id:"iw_bb",c:0, d:null, pts:[{x:238,y:148},{x:472,y:148}]},   // bump-out base (Office 8 / Lobby divide)
-  {id:"iw3",  c:0, d:null, pts:[{x:472,y:148},{x:472,y:575}]},   // Office 11 left (= bump right)
-  {id:"iw4",  c:0, d:null, pts:[{x:58, y:575},{x:316,y:575}]},   // upper/lower divide (left)
-  {id:"iw4b", c:0, d:null, pts:[{x:316,y:575},{x:440,y:575}]},   // lobby/corridor divide (center)
-  {id:"iw5",  c:0, d:null, pts:[{x:440,y:575},{x:648,y:575}]},   // upper/lower divide (right)
-  {id:"iw6",  c:0, d:null, pts:[{x:316,y:575},{x:316,y:782}]},   // corridor left wall (= MR1 right)
-  {id:"iw7",  c:0, d:null, pts:[{x:440,y:575},{x:440,y:782}]},   // corridor right wall (= MR2 left)
-  {id:"iw11", c:0, d:null, pts:[{x:58, y:782},{x:648,y:782}]},   // MR3 top wall
+  {id:"iw_bb",c:0, d:null, pts:[{x:238,y:148},{x:472,y:148}]},
+  {id:"iw3",  c:0, d:null, pts:[{x:472,y:148},{x:472,y:575}]},
+  {id:"iw4",  c:0, d:null, pts:[{x:58, y:575},{x:316,y:575}]},
+  {id:"iw4b", c:0, d:null, pts:[{x:316,y:575},{x:440,y:575}]},
+  {id:"iw5",  c:0, d:null, pts:[{x:440,y:575},{x:648,y:575}]},
+  {id:"iw6",  c:0, d:null, pts:[{x:316,y:575},{x:316,y:782}]},
+  {id:"iw7",  c:0, d:null, pts:[{x:440,y:575},{x:440,y:782}]},
+  {id:"iw11", c:0, d:null, pts:[{x:58, y:782},{x:648,y:782}]},
   // New in New Construction
-  {id:"nw1",  c:1, d:null, pts:[{x:58, y:390},{x:472,y:390}]},   // Conference Room / Reception divide
+  {id:"nw1",  c:1, d:null, pts:[{x:58, y:390},{x:472,y:390}]},
   // Demolished in New Construction
-  {id:"dw1",  c:0, d:1,    pts:[{x:265,y:148},{x:265,y:575}]},   // Storage|Lobby vertical
-  {id:"dw2",  c:0, d:1,    pts:[{x:58, y:345},{x:265,y:345}]},   // Storage|Reception horizontal
+  {id:"dw1",  c:0, d:1,    pts:[{x:265,y:148},{x:265,y:575}]},
+  {id:"dw2",  c:0, d:1,    pts:[{x:58, y:345},{x:265,y:345}]},
 ];
 
-// Rooms — polygon + label position
 const ROOMS = [
-  // Permanent rooms
+  // Permanent
   {id:"r8",  name:"OFFICE",         num:"8",  c:0, d:null,
    poly:[{x:238,y:32},{x:472,y:32},{x:472,y:148},{x:238,y:148}], lx:355, ly:90},
   {id:"r10", name:"LOBBY",          num:"10", c:0, d:1,
@@ -232,10 +252,10 @@ const ROOMS = [
 
 function elemStatus(elem, pi) {
   const c = elem.c, d = elem.d;
-  if (c > pi)              return "future";
-  if (d !== null && d < pi) return "past";        // demolished before this phase
-  if (d === pi)            return "demolished";
-  if (c === pi && c > 0)   return "new_";         // created in this phase (not base)
+  if (c > pi)               return "future";
+  if (d !== null && d < pi) return "past";
+  if (d === pi)             return "demolished";
+  if (c === pi && c > 0)    return "new_";
   return "existing";
 }
 
@@ -271,78 +291,86 @@ const WALL_STYLE = {
 };
 
 const ROOM_STYLE = {
-  existing:   { fill:"#cde8f6",                   sdash:"",    op:1   },
-  demolished: { fill:"#f0d0e8",                    sdash:"",    op:1   },
-  new_:       { fill:"#ccf0e0",                    sdash:"",    op:1   },
-  future:     { fill:"#f0f0d8",                    sdash:"",    op:0.5 },
+  existing:   { fill:"#cde8f6", op:1   },
+  demolished: { fill:"#f0d0e8", op:1   },
+  new_:       { fill:"#ccf0e0", op:1   },
+  future:     { fill:"#f0f0d8", op:0.5 },
 };
 
 // ────────────────────────────────────────────────────────────
-// RENDER
+// RENDER CORE — shared between expected and buggy SVGs
+//
+// buggy mode simulates the current Revit issue for
+// Phase = New Construction + Show Previous + Demolish:
+//   • demolished rooms are hidden (should be pink)
+//   • new rooms appear green (should be hidden by this filter)
+//   • existing rooms shown without fill colour
 // ────────────────────────────────────────────────────────────
 
-function render() {
-  const pi = +document.getElementById("sel-phase").value;
-  const fk = document.getElementById("sel-filter").value;
-  const f  = FILTERS[fk];
+function isVisibleBuggy(st) {
+  return st === "existing" || st === "new_";
+}
 
-  document.getElementById("badge-phase").textContent  = `Phase = ${PHASES[pi]}`;
-  document.getElementById("badge-filter").textContent = `Phase Filter = ${f.label}`;
+function renderPlan(gR, gW, gL, pi, fk, buggy) {
+  [gR, gW, gL].forEach(g => { g.innerHTML = ""; });
 
-  const gR = document.getElementById("g-rooms");
-  const gW = document.getElementById("g-walls");
-  const gL = document.getElementById("g-labels");
-  const gA = document.getElementById("g-annot");
-  [gR, gW, gL, gA].forEach(g => { g.innerHTML = ""; });
-
-  // ── Room fills — two passes so demolished rooms overlay new rooms ──
-  // Pass 1: existing + new_ fills
+  // ── Room fills pass 1: existing + new_ ──────────────────
   ROOMS.forEach(room => {
-    const st = elemStatus(room, pi);
-    if (!isVisible(st, fk) || st === "demolished") return;
-    const rs = ROOM_STYLE[st] || ROOM_STYLE.existing;
+    const st  = elemStatus(room, pi);
+    const vis = buggy ? isVisibleBuggy(st) : isVisible(st, fk);
+    if (!vis || st === "demolished") return;
+    const rs   = ROOM_STYLE[st] || ROOM_STYLE.existing;
+    const fill = (buggy && st === "existing") ? "#f7f8f9" : rs.fill;
     gR.appendChild(svgEl("polygon", {
       points:             pts2str(room.poly),
-      fill:               rs.fill,
-      stroke:             st === "new_" ? "#7bbfba" : "none",
-      "stroke-width":     st === "new_" ? "1.5" : "0",
-      "stroke-dasharray": "",
+      fill,
       opacity:            rs.op,
-    }));
-  });
-
-  // Pass 2: demolished fills on top — semi-transparent in "Show All" so new rooms show through
-  ROOMS.forEach(room => {
-    const st = elemStatus(room, pi);
-    if (!isVisible(st, fk) || st !== "demolished") return;
-    const rs = ROOM_STYLE["demolished"];
-    gR.appendChild(svgEl("polygon", {
-      points:             pts2str(room.poly),
-      fill:               rs.fill,
-      stroke:             "none",
-      "stroke-width":     "0",
+      stroke:             (!buggy && st === "new_") ? "#7bbfba" : "none",
+      "stroke-width":     (!buggy && st === "new_") ? "1.5" : "0",
       "stroke-dasharray": "",
-      opacity:            fk === "all" ? 0.5 : rs.op,
     }));
   });
 
-  // ── Room labels ───────────────────────────────────────────
-  ROOMS.forEach(room => {
-    const st = elemStatus(room, pi);
-    if (!isVisible(st, fk)) return;
+  // ── Room fills pass 2: demolished ───────────────────────
+  // Hidden entirely in buggy mode; semi-transparent in "Show All" otherwise
+  if (!buggy) {
+    ROOMS.forEach(room => {
+      const st = elemStatus(room, pi);
+      if (!isVisible(st, fk) || st !== "demolished") return;
+      const rs = ROOM_STYLE["demolished"];
+      gR.appendChild(svgEl("polygon", {
+        points:             pts2str(room.poly),
+        fill:               rs.fill,
+        opacity:            fk === "all" ? 0.5 : rs.op,
+        stroke:             "none",
+        "stroke-width":     "0",
+        "stroke-dasharray": "",
+      }));
+    });
+  }
 
-    const isDemolished = (st === "demolished");
+  // ── Room labels ─────────────────────────────────────────
+  ROOMS.forEach(room => {
+    const st  = elemStatus(room, pi);
+    const vis = buggy ? isVisibleBuggy(st) : isVisible(st, fk);
+    if (!vis) return;
+
+    const isDemolished = (!buggy && st === "demolished");
+    const isGhosted    = (buggy  && st === "existing");
+    const labelColor   = isDemolished ? "#cc3300" : isGhosted ? "#bbb" : "#1a2a3a";
+    const boxStroke    = isDemolished ? "#cc3300" : isGhosted ? "#ddd" : "#333";
+
     const g = document.createElementNS(NS, "g");
 
     const nameEl = svgEl("text", {
       x: room.lx, y: room.ly - 10,
-      "text-anchor":      "middle",
-      "font-family":      "Arial",
-      "font-size":        room.name.length > 10 ? "9.5" : "10.5",
-      "font-weight":      "600",
-      "letter-spacing":   "0.4",
-      fill:               isDemolished ? "#cc3300" : "#1a2a3a",
-      "text-decoration":  "none",
+      "text-anchor":    "middle",
+      "font-family":    "Arial",
+      "font-size":      room.name.length > 10 ? "9.5" : "10.5",
+      "font-weight":    "600",
+      "letter-spacing": "0.4",
+      "text-decoration":"none",
+      fill:             labelColor,
     });
     nameEl.textContent = room.name;
     g.appendChild(nameEl);
@@ -352,17 +380,15 @@ function render() {
       g.appendChild(svgEl("rect", {
         x: room.lx - bw/2, y: room.ly + 1,
         width: bw, height: bh,
-        fill: "white",
-        stroke: isDemolished ? "#cc3300" : "#333",
-        "stroke-width": "1", rx: "2",
+        fill: "white", stroke: boxStroke, "stroke-width": "1", rx: "2",
       }));
       const numEl = svgEl("text", {
         x: room.lx, y: room.ly + 12,
-        "text-anchor":  "middle",
-        "font-family":  "Arial",
-        "font-size":    "9",
-        "font-weight":  "700",
-        fill:           isDemolished ? "#cc3300" : "#1a2a3a",
+        "text-anchor": "middle",
+        "font-family": "Arial",
+        "font-size":   "9",
+        "font-weight": "700",
+        fill:          labelColor,
       });
       numEl.textContent = room.num;
       g.appendChild(numEl);
@@ -375,32 +401,60 @@ function render() {
     const st = elemStatus(wall, pi);
     if (!isVisible(st, fk)) return;
     const ws = WALL_STYLE[st] || WALL_STYLE.existing;
-
     gW.appendChild(svgEl("polyline", {
-      points:              wall.pts.map(p => `${p.x},${p.y}`).join(" "),
-      fill:                "none",
-      stroke:              ws.stroke,
-      "stroke-width":      ws.w,
-      "stroke-dasharray":  ws.dash,
-      "stroke-linecap":    "square",
-      opacity:             ws.op,
+      points:             wall.pts.map(p => `${p.x},${p.y}`).join(" "),
+      fill:               "none",
+      stroke:             ws.stroke,
+      "stroke-width":     ws.w,
+      "stroke-dasharray": ws.dash,
+      "stroke-linecap":   "square",
+      opacity:            ws.op,
     }));
   });
+}
 
+// ────────────────────────────────────────────────────────────
+// RENDER
+// ────────────────────────────────────────────────────────────
 
-  // ── Status count bar ─────────────────────────────────────
+let comparisonActive = false;
+
+function render() {
+  const pi = +document.getElementById("sel-phase").value;
+  const fk = document.getElementById("sel-filter").value;
+  const f  = FILTERS[fk];
+
+  document.getElementById("badge-phase").textContent  = `Phase = ${PHASES[pi]}`;
+  document.getElementById("badge-filter").textContent = `Phase Filter = ${f.label}`;
+
+  renderPlan(
+    document.getElementById("g-rooms"),
+    document.getElementById("g-walls"),
+    document.getElementById("g-labels"),
+    pi, fk, false
+  );
+
+  if (comparisonActive) {
+    renderPlan(
+      document.getElementById("g-rooms-b"),
+      document.getElementById("g-walls-b"),
+      document.getElementById("g-labels-b"),
+      pi, fk, true
+    );
+  }
+
+  // Status count bar
   let ex = 0, dm = 0, nw = 0, hid = 0;
   [...WALLS, ...ROOMS].forEach(e => {
     const s = elemStatus(e, pi);
     if (!isVisible(s, fk)) { hid++; return; }
-    if (s === "existing")   ex++;
+    if (s === "existing")        ex++;
     else if (s === "demolished") dm++;
-    else if (s === "new_")  nw++;
+    else if (s === "new_")       nw++;
   });
-
   const parts = [`existing: ${ex}`];
-  if (dm) parts.push(`demolished: ${dm}`);
-  if (nw) parts.push(`new: ${nw}`);
+  if (dm)  parts.push(`demolished: ${dm}`);
+  if (nw)  parts.push(`new: ${nw}`);
   if (hid) parts.push(`hidden by filter: ${hid}`);
   document.getElementById("info").textContent = "Elements visible — " + parts.join(" · ");
 }
@@ -408,9 +462,38 @@ function render() {
 // ────────────────────────────────────────────────────────────
 // INIT
 // ────────────────────────────────────────────────────────────
+
 function highlightDemolished() {
   document.getElementById("sel-phase").value  = "1";
   document.getElementById("sel-filter").value = "prev-demo";
+  render();
+}
+
+function toggleComparison() {
+  const fp     = document.getElementById("fp");
+  const fpB    = document.getElementById("fp-b");
+  const panel  = document.getElementById("panel-buggy");
+  const lblExp = document.getElementById("lbl-expected");
+  const btn    = document.getElementById("btn-compare");
+
+  comparisonActive = !comparisonActive;
+
+  if (comparisonActive) {
+    // Lock to the scenario being demonstrated
+    document.getElementById("sel-phase").value  = "1";
+    document.getElementById("sel-filter").value = "prev-demo";
+    // Shrink both SVGs to fit side by side
+    fp.setAttribute("width",  "400"); fp.setAttribute("height",  "546");
+    fpB.setAttribute("width", "400"); fpB.setAttribute("height", "546");
+    panel.style.display  = "";
+    lblExp.style.display = "";
+    btn.textContent = "Hide Comparison";
+  } else {
+    fp.setAttribute("width",  "530"); fp.setAttribute("height",  "722");
+    panel.style.display  = "none";
+    lblExp.style.display = "none";
+    btn.textContent = "Show Current Behavior";
+  }
   render();
 }
 
