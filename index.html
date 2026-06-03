@@ -322,13 +322,24 @@ function renderPlan(gR, gW, gL, pi, fk, buggy) {
     const newPts = ROOMS.filter(r => elemStatus(r, pi) === "new_").flatMap(r => r.poly);
     if (newPts.length) {
       const xs = newPts.map(p => p.x), ys = newPts.map(p => p.y);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs);
+      const y0 = Math.min(...ys), y1 = Math.max(...ys);
       gR.appendChild(svgEl("rect", {
-        x:      String(Math.min(...xs)),
-        y:      String(Math.min(...ys)),
-        width:  String(Math.max(...xs) - Math.min(...xs)),
-        height: String(Math.max(...ys) - Math.min(...ys)),
-        fill:   ROOM_STYLE["new_"].fill,
+        x: String(x0), y: String(y0),
+        width: String(x1 - x0), height: String(y1 - y0),
+        fill: ROOM_STYLE["new_"].fill,
       }));
+      // White gap showing where the new wall (nw1) sits — visible in current Revit behavior
+      // even though the wall itself is filtered out
+      WALLS.forEach(wall => {
+        if (elemStatus(wall, pi) !== "new_") return;
+        const wx = wall.pts.map(p => p.x), wy = wall.pts.map(p => p.y);
+        gR.appendChild(svgEl("line", {
+          x1: String(Math.min(...wx)), y1: String(Math.min(...wy)),
+          x2: String(Math.max(...wx)), y2: String(Math.max(...wy)),
+          stroke: "white", "stroke-width": "4", "stroke-linecap": "butt",
+        }));
+      });
     }
     ROOMS.forEach(room => {
       if (elemStatus(room, pi) !== "existing") return;
